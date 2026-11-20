@@ -11,6 +11,10 @@ on:
         description: 'Version (leave empty for the next one, e.g. 2026.2)'
         required: false
         default: ''
+      test:
+        description: 'Test only: make the files to check, publish nothing'
+        type: boolean
+        default: false
   schedule:
     - cron: '17 6 1 1,7 *'
 
@@ -35,8 +39,18 @@ jobs:
           if [ -f .release-skip ]; then echo "SKIP=1" >> "$GITHUB_ENV"; exit 0; fi
           echo "VERSION=$(cat .release-version)" >> "$GITHUB_ENV"
 
+      - name: Test run — files to download and check (nothing is published)
+        if: env.SKIP != '1' && inputs.test
+        uses: actions/upload-artifact@v4
+        with:
+          name: soi-test-release
+          path: |
+            releases/
+            releases.json
+            CHANGELOG.md
+
       - name: Save it in the repository
-        if: env.SKIP != '1'
+        if: env.SKIP != '1' && !inputs.test
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -45,7 +59,7 @@ jobs:
           git push
 
       - name: Publish the release (Zenodo archives it)
-        if: env.SKIP != '1'
+        if: env.SKIP != '1' && !inputs.test
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
