@@ -1,0 +1,20 @@
+{
+  "title": "Syrphidae of Italy (SoI)",
+  "upload_type": "dataset",
+  "description": "<p>Versioned data releases of Syrphidae of Italy (SoI), the open catalogue of Italian hoverflies (Diptera: Syrphidae) built in TaxonWorks: names, synonymy and classification, references, and specimen and observation records. Each release is a frozen snapshot with counts and the list of changes since the previous release. The occurrence records are the same data published on GBIF (doi:10.15468/faryxm).</p><p>Website: https://syrphidaeitaly.com</p>",
+  "creators": [
+    { "name": "Sommaggio, Daniele" },
+    {
+      "name": "Dal Pos, Davide",
+      "affiliation": "Enns Entomology Museum, University of Missouri",
+      "orcid": "0000-0002-9122-934X"
+    }
+  ],
+  "license": "cc-zero",
+  "access_right": "open",
+  "keywords": ["Syrphidae", "Diptera", "hoverflies", "Italy", "checklist", "taxonomy", "occurrences", "TaxonWorks"],
+  "related_identifiers": [
+    { "identifier": "10.15468/faryxm", "relation": "isVariantFormOf", "scheme": "doi", "resource_type": "dataset" },
+    { "identifier": "https://syrphidaeitaly.com", "relation": "isSupplementTo", "scheme": "url" }
+  ]
+}

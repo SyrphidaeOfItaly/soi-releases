@@ -1,0 +1,59 @@
+# Makes a Syrphidae of Italy data release, straight from TaxonWorks (nothing to export by hand).
+# - By hand: Actions → "Make a release" → Run workflow (leave the version empty for the next one, e.g. 2026.2).
+# - By itself: on 1 January and 1 July, only if names, references or records changed.
+# It saves the snapshot in releases/<version>/ and publishes a GitHub release; Zenodo archives it and gives it a DOI.
+name: Make a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (leave empty for the next one, e.g. 2026.2)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '17 6 1 1,7 *'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Snapshot, statistics and changes
+        env:
+          SKIP_IF_UNCHANGED: ${{ github.event_name == 'schedule' && '1' || '0' }}
+        run: |
+          node scripts/release.mjs "${{ inputs.version }}" > /tmp/notes.md
+          if [ -f .release-skip ]; then echo "SKIP=1" >> "$GITHUB_ENV"; exit 0; fi
+          echo "VERSION=$(cat .release-version)" >> "$GITHUB_ENV"
+
+      - name: Save it in the repository
+        if: env.SKIP != '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases releases.json CHANGELOG.md
+          git commit -m "Release $VERSION"
+          git push
+
+      - name: Publish the release (Zenodo archives it)
+        if: env.SKIP != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          D="releases/$VERSION"
+          gh release create "v$VERSION" \
+            --title "Syrphidae of Italy $VERSION" \
+            --notes-file "$D/notes.md" \
+            "$D/SoI-$VERSION-occurrences-dwca.zip" \
+            "$D/names.csv" \
+            "$D/references.csv" \
+            "$D/stats.json"

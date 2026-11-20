@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use these data, please cite the release you used (each release has its own DOI on Zenodo)."
+title: "Syrphidae of Italy (SoI)"
+type: dataset
+authors:
+  - family-names: "Sommaggio"
+    given-names: "Daniele"
+  - family-names: "Dal Pos"
+    given-names: "Davide"
+    orcid: "https://orcid.org/0000-0002-9122-934X"
+    affiliation: "Enns Entomology Museum, University of Missouri"
+license: CC0-1.0
+url: "https://syrphidaeitaly.com"
+keywords:
+  - Syrphidae
+  - Diptera
+  - hoverflies
+  - Italy
