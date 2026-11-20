@@ -29,7 +29,7 @@ const today = new Date().toISOString().slice(0, 10)
 async function getJSON(path, params = {}) {
   const u = new URL(API + path)
   u.searchParams.set('project_token', TOKEN)
-  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v)
+  for (const [k, v] of Object.entries(params)) for (const x of [].concat(v)) u.searchParams.append(k, x)
   for (let attempt = 1; ; attempt++) {
     const r = await fetch(u)
     if (r.ok) return { data: await r.json(), headers: r.headers }
@@ -99,7 +99,14 @@ function ancestor(n, rank) {
   }
   return ''
 }
-const protonyms = all.filter((n) => n.type === 'Protonym' && n.rank_string !== 'NomenclaturalRank' && n.cached)
+// only hoverflies: the project also holds the plants, prey, hosts and parasitoids of the
+// biological associations, which are not part of the catalogue
+const FAMILY = 'Syrphidae'
+const inFamily = (n) => {
+  const valid = byId.get(n.cached_valid_taxon_name_id) || n
+  return n.cached === FAMILY || ancestor(valid, 'family') === FAMILY || ancestor(n, 'family') === FAMILY
+}
+const protonyms = all.filter((n) => n.type === 'Protonym' && n.rank_string !== 'NomenclaturalRank' && n.cached && inFamily(n))
 const names = protonyms.map((n) => {
   const valid = byId.get(n.cached_valid_taxon_name_id) || n
   return {
@@ -123,7 +130,7 @@ const counts = {
   species: names.filter((r) => isSp(r) && r.status === 'valid').length,
   subspecies: names.filter((r) => r.rank === 'subspecies' && r.status === 'valid').length,
   invalid_names: names.filter((r) => r.status !== 'valid').length,
-  combinations: all.filter((n) => n.type === 'Combination').length
+  combinations: all.filter((n) => n.type === 'Combination' && inFamily(n)).length
 }
 const perSubfamily = {}
 for (const r of names) {
@@ -132,6 +139,54 @@ for (const r of names) {
   perSubfamily[k] ||= { genera: 0, species: 0 }
   perSubfamily[k][r.rank === 'genus' ? 'genera' : 'species']++
 }
+
+// ---------- the other taxa: plants, prey, hosts and parasitoids of the associations ----------
+const associatedTaxa = all
+  .filter((n) => n.type === 'Protonym' && n.rank_string !== 'NomenclaturalRank' && n.cached && !inFamily(n))
+  .map((n) => {
+    const valid = byId.get(n.cached_valid_taxon_name_id) || n
+    return {
+      id: n.id,
+      name: n.cached,
+      authorship: n.cached_author_year || '',
+      rank: n.rank || '',
+      status: n.cached_is_valid ? 'valid' : n.cached_is_available === false ? 'unavailable' : 'invalid',
+      valid_name: n.cached_is_valid ? '' : valid.cached || '',
+      family: valid.rank === 'family' ? valid.cached : ancestor(valid, 'family'),
+      order: ancestor(valid, 'order')
+    }
+  })
+  .sort((a, b) => a.name.localeCompare(b.name))
+counts.associated_taxa = associatedTaxa.filter((r) => r.status === 'valid').length
+
+// ---------- biological associations ----------
+console.error('Fetching biological associations…')
+const bas = await getAll('/biological_associations', {
+  'extend[]': ['subject', 'object', 'biological_relationship', 'taxonomy', 'citations', 'source']
+})
+const side = (o = {}) => ({ name: o.object_label || '', family: o.taxonomy?.family || '', order: o.taxonomy?.order || '' })
+const associations = bas
+  .map((a) => {
+    const sub = side(a.subject)
+    const obj = side(a.object)
+    const cits = a.citations || []
+    return {
+      id: a.id,
+      subject: sub.name,
+      subject_family: sub.family,
+      subject_order: sub.order,
+      relationship: a.biological_relationship?.name || '',
+      object: obj.name,
+      object_family: obj.family,
+      object_order: obj.order,
+      references: cits.map((c) => c.citation_source_body).filter(Boolean).join(' | '),
+      reference_ids: cits.map((c) => c.source_id).filter(Boolean).join(' | ')
+    }
+  })
+  .sort((a, b) => a.subject.localeCompare(b.subject) || a.object.localeCompare(b.object))
+counts.associations = associations.length
+const byRelationship = {}
+for (const a of associations) byRelationship[a.relationship] = (byRelationship[a.relationship] || 0) + 1
 
 // ---------- references ----------
 console.error('Fetching references…')
@@ -173,12 +228,13 @@ if (dwca) {
     const head = metaCols.length ? first.map((h, i) => metaCols[i] || h) : first
     lines.splice(0, skip)
     const col = (n) => head.indexOf(n)
-    const [cB, cS, cLat, cY, cSp] = ['basisOfRecord', 'scientificName', 'decimalLatitude', 'year', 'specificEpithet'].map(col)
+    const [cB, cS, cLat, cY, cSp, cFam] = ['basisOfRecord', 'scientificName', 'decimalLatitude', 'year', 'specificEpithet', 'family'].map(col)
     const basis = {}
     const taxa = new Set()
-    let georef = 0, minY = Infinity, maxY = -Infinity
+    let georef = 0, others = 0, minY = Infinity, maxY = -Infinity
     for (const l of lines) {
       const c = l.split(sep)
+      if (cFam >= 0 && c[cFam] && c[cFam] !== FAMILY) { others++; continue }
       basis[c[cB] || 'unknown'] = (basis[c[cB] || 'unknown'] || 0) + 1
       if (cSp >= 0 && c[cSp]) taxa.add(c[cS])
       if (cLat >= 0 && c[cLat]) georef++
@@ -186,7 +242,8 @@ if (dwca) {
       if (y > 1000) { minY = Math.min(minY, y); maxY = Math.max(maxY, y) }
     }
     occ = {
-      records: lines.length,
+      records: lines.length - others,
+      other_records_in_archive: others,
       georeferenced: georef,
       species_with_records: taxa.size,
       by_basis_of_record: basis,
@@ -221,7 +278,7 @@ if (previous) {
   }
   const unchanged =
     !changes.added.length && !changes.removed.length && !changes.status.length && !changes.combination.length &&
-    previous.counts?.occurrences === counts.occurrences && previous.counts?.references === counts.references
+    previous.counts?.occurrences === counts.occurrences && previous.counts?.references === counts.references && previous.counts?.associations === counts.associations
   if (unchanged && process.env.SKIP_IF_UNCHANGED === '1') {
     console.error('Nothing changed since the last release: no release made.')
     writeFileSync(join(ROOT, '.release-skip'), '1')
@@ -233,6 +290,8 @@ if (previous) {
 const dir = join(ROOT, 'releases', version)
 mkdirSync(dir, { recursive: true })
 writeFileSync(join(dir, 'names.csv'), toCSV(names, ['id', 'name', 'authorship', 'rank', 'status', 'valid_name', 'original_combination', 'subfamily', 'genus', 'year']))
+writeFileSync(join(dir, 'associations.csv'), toCSV(associations, ['id', 'subject', 'subject_family', 'subject_order', 'relationship', 'object', 'object_family', 'object_order', 'references', 'reference_ids']))
+writeFileSync(join(dir, 'associated_taxa.csv'), toCSV(associatedTaxa, ['id', 'name', 'authorship', 'rank', 'status', 'valid_name', 'family', 'order']))
 writeFileSync(join(dir, 'references.csv'), toCSV(references, ['id', 'year', 'citation', 'doi', 'url']))
 const zipName = `SoI-${version}-occurrences-dwca.zip`
 if (zipBuf) writeFileSync(join(dir, zipName), zipBuf)
@@ -240,10 +299,15 @@ if (zipBuf) writeFileSync(join(dir, zipName), zipBuf)
 const fmt = (n) => Number(n).toLocaleString('en-US')
 const nameList = (list, f) => list.slice(0, 60).map(f).join('\n') + (list.length > 60 ? `\n- … and ${list.length - 60} more (see names.csv)` : '')
 let notes = `# Syrphidae of Italy ${version}\n\nReleased ${today}.\n\n`
-notes += `| | |\n|---|---:|\n| Valid species | ${fmt(counts.species)} |\n| Valid genera | ${fmt(counts.genera)} |\n| Invalid and unavailable names | ${fmt(counts.invalid_names)} |\n| References | ${fmt(counts.references)} |\n| Occurrence records | ${fmt(counts.occurrences)} |\n\n`
+notes += `| | |\n|---|---:|\n| Valid species | ${fmt(counts.species)} |\n| Valid genera | ${fmt(counts.genera)} |\n| Invalid and unavailable names | ${fmt(counts.invalid_names)} |\n| Biological associations | ${fmt(counts.associations)} |\n| Associated taxa (plants, prey, hosts, parasitoids) | ${fmt(counts.associated_taxa)} |\n| References | ${fmt(counts.references)} |\n| Occurrence records | ${fmt(counts.occurrences)} |\n\n`
 if (Object.keys(perSubfamily).length) {
   notes += `## By subfamily\n\n| Subfamily | Genera | Species |\n|---|---:|---:|\n`
   for (const [k, v] of Object.entries(perSubfamily).sort()) notes += `| ${k} | ${v.genera} | ${v.species} |\n`
+  notes += '\n'
+}
+if (Object.keys(byRelationship).length) {
+  notes += `## Biological associations\n\n| Relationship | Associations |\n|---|---:|\n`
+  for (const [k, v] of Object.entries(byRelationship).sort((a, b) => b[1] - a[1])) notes += `| ${k} | ${v} |\n`
   notes += '\n'
 }
 if (!changes) notes += `## Changes\n\nFirst release.\n\n`
@@ -256,15 +320,19 @@ else {
   sec('Names removed', changes.removed, (r) => `- *${r.name}* ${r.authorship}`)
   const d = counts.occurrences - (previous.counts?.occurrences || 0)
   notes += `Occurrence records: ${fmt(counts.occurrences)} (${d >= 0 ? '+' : ''}${fmt(d)}).\n\n`
+  const da = counts.associations - (previous.counts?.associations || 0)
+  notes += `Biological associations: ${fmt(counts.associations)} (${da >= 0 ? '+' : ''}${fmt(da)}).\n\n`
   if (!changes.added.length && !changes.status.length && !changes.combination.length && !changes.removed.length) notes += 'No changes to the names.\n\n'
 }
-notes += `## Files\n\n- \`names.csv\`: every name, with its status and valid name\n- \`references.csv\`: every reference\n- \`${zipName}\`: the occurrence records (Darwin Core archive, as published on GBIF, doi:10.15468/faryxm)\n- \`stats.json\`: the counts above\n\nLicence: CC0 1.0.\n`
+notes += `## Files\n\n- \`names.csv\`: every name, with its status and valid name\n- \`associations.csv\`: every biological association (who, relationship, with whom, and the references)
+- \`associated_taxa.csv\`: the other taxa in the associations (plants, prey, hosts, parasitoids)
+- \`references.csv\`: every reference\n- \`${zipName}\`: the occurrence records (Darwin Core archive, as published on GBIF, doi:10.15468/faryxm)\n- \`stats.json\`: the counts above\n\nLicence: CC0 1.0.\n`
 writeFileSync(join(dir, 'notes.md'), notes)
 
 const summary = changes
   ? { added: changes.added.length, status: changes.status.length, combination: changes.combination.length, removed: changes.removed.length }
   : null
-const entry = { version, date: today, doi: '', counts, per_subfamily: perSubfamily, occurrences: occ, changes: summary }
+const entry = { version, date: today, doi: '', counts, per_subfamily: perSubfamily, occurrences: occ, associations: byRelationship, changes: summary }
 writeFileSync(join(dir, 'stats.json'), JSON.stringify({ ...entry, changes }, null, 2) + '\n')
 // the website shows the lists too: keep them short in releases.json
 const short = (l) => l.slice(0, 40)

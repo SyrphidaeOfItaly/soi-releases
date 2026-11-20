@@ -8,7 +8,9 @@ Each release (`releases/<version>/`) contains:
 
 | File | What it is |
 |---|---|
-| `names.csv` | every name: status (valid, invalid, unavailable), valid name, original combination, subfamily, genus |
+| `names.csv` | every hoverfly name: status (valid, invalid, unavailable), valid name, original combination, subfamily, genus |
+| `associations.csv` | every biological association: subject, relationship, object (with family and order) and the references |
+| `associated_taxa.csv` | the other taxa of the associations: plants, prey, hosts, parasitoids |
 | `references.csv` | every reference in the project |
 | `SoI-<version>-occurrences-dwca.zip` | the occurrence records, Darwin Core archive (the same data as on GBIF, doi:10.15468/faryxm) |
 | `stats.json` | counts, per subfamily, and the changes since the previous release |
