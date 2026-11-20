@@ -25,11 +25,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Snapshot, statistics and changes
         env:
@@ -41,7 +41,7 @@ jobs:
 
       - name: Test run — files to download and check (nothing is published)
         if: env.SKIP != '1' && inputs.test
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: soi-test-release
           path: |
